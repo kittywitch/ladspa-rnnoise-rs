@@ -1,20 +1,18 @@
-extern crate ladspa;
-extern crate nnnoiseless;
+use ladspa::{PluginDescriptor, PortDescriptor, Port, Plugin, PortConnection};
 
-use ladspa::{PluginDescriptor, PortDescriptor, Port, DefaultValue, Data, Plugin, PortConnection};
-use std::default::Default;
+const FRAME_SIZE: usize = nnnoiseless::DenoiseState::FRAME_SIZE;
 
 struct Denoiser {
     denoiser: Box<nnnoiseless::DenoiseState<'static>>,
     first: bool,
-    last_sample: [f32; nnnoiseless::DenoiseState::FRAME_SIZE],
+    last_sample: [f32; FRAME_SIZE],
 }
 
-fn new_denoiser(_: &PluginDescriptor, _sample_rate: u64) -> Box<Plugin + Send> {
+fn new_denoiser(_: &PluginDescriptor, _sample_rate: u64) -> Box<dyn Plugin + Send> {
     Box::new(Denoiser {
         denoiser: nnnoiseless::DenoiseState::new(),
         first: true,
-        last_sample: [0.0f32; nnnoiseless::DenoiseState::FRAME_SIZE],
+        last_sample: [0.0f32; FRAME_SIZE],
     })
 }
 
@@ -23,32 +21,36 @@ impl Plugin for Denoiser {
     fn activate(&mut self) {
     }
 
-    fn run<'a>(&mut self, sample_count: usize, ports: &[&'a PortConnection<'a>]) {
+    fn run<'a>(&mut self, _sample_count: usize, ports: &[&'a PortConnection<'a>]) {
         let input = ports[0].unwrap_audio();
         let mut output = ports[1].unwrap_audio_mut();
-        let mut out_buf = [0.0; nnnoiseless::DenoiseState::FRAME_SIZE];
-        let mut input_buf = [0.0f32; nnnoiseless::DenoiseState::FRAME_SIZE];
-        input_buf[(nnnoiseless::DenoiseState::FRAME_SIZE - input.len())..].copy_from_slice(&input);
-        if !self.first {
-            input_buf[..(nnnoiseless::DenoiseState::FRAME_SIZE - input.len())].copy_from_slice(&self.last_sample[input.len()..]);
-        }
-        self.last_sample = input_buf;
-        input_buf.iter_mut().for_each(|sample| *sample = *sample * 32768.0f32);
-        for chunk in input_buf.chunks_exact(nnnoiseless::DenoiseState::FRAME_SIZE) {
+        let mut output = output.iter_mut();
+        let mut output_buf = [0.0f32; FRAME_SIZE];
+
+        for chunk in input.chunks(FRAME_SIZE) {
+            let mut input_buf = [0.0f32; FRAME_SIZE];
+            input_buf[FRAME_SIZE.saturating_sub(chunk.len())..].copy_from_slice(&chunk);
             if !self.first {
-                self.denoiser.process_frame(&mut out_buf[..], chunk);
+                input_buf[..FRAME_SIZE.saturating_sub(chunk.len())].copy_from_slice(&self.last_sample[chunk.len()..]);
             }
+            self.last_sample = input_buf;
+            input_buf.iter_mut().for_each(|sample| *sample = *sample * 32768.0f32);
+            self.denoiser.process_frame(&mut output_buf, &input_buf);
             self.first = false;
-        }
-        out_buf.iter_mut().for_each(|sample| *sample = *sample / 32768.0f32);
-        for i in 0..sample_count {
-            output[i] = out_buf[i];
+
+            for (output, &sample) in output.by_ref().zip(output_buf.iter()) {
+                if !self.first {
+                    *output = sample / 32768.0f32;
+                } else {
+                    *output = 0.0f32;
+                }
+            }
         }
     }
 }
 
 #[no_mangle]
-pub extern fn get_ladspa_descriptor(index: u64) -> Option<PluginDescriptor> {
+pub extern "Rust" fn get_ladspa_descriptor(index: u64) -> Option<PluginDescriptor> {
     match index {
         0 => {
             Some(PluginDescriptor {
