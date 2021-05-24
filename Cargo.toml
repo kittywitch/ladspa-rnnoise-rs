@@ -10,4 +10,4 @@ nnnoiseless = "0.3.2"
 
 [lib]
 name = "ladspa_rnnoise_rs"
-crate-type = ["dylib"]
+crate-type = ["cdylib"]
