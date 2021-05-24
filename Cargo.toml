@@ -1,0 +1,13 @@
+[package]
+name = "ladspa_rnnoise_rs"
+version = "0.1.0"
+authors = ["kat witch <kat@kittywit.ch>"]
+edition = "2018"
+
+[dependencies]
+ladspa = "0.3.4"
+nnnoiseless = "0.3.2"
+
+[lib]
+name = "ladspa_rnnoise_rs"
+crate-type = ["dylib"]
