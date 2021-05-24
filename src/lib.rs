@@ -48,7 +48,7 @@ impl Plugin for Denoiser {
 }
 
 #[no_mangle]
-pub fn get_ladspa_descriptor(index: u64) -> Option<PluginDescriptor> {
+pub extern fn get_ladspa_descriptor(index: u64) -> Option<PluginDescriptor> {
     match index {
         0 => {
             Some(PluginDescriptor {
